@@ -16,7 +16,7 @@ fn main() {
   trace!("Creating service handler...");
   //set a requests handler
   let server = builder.serve(|| {
-    service_fn_ok(|_| {
+    service_fn_ok(|req| {
       trace!("Incoming request is: {:?}", req);
       let random_byte = rand::random::<u8>();
       debug!("Generated value is: {}", random_byte);
