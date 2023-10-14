@@ -5,7 +5,7 @@ use log::{debug,info,trace};
 
 fn main() {
   //initialize logging
-  logger::init();
+  pretty_env_logger::init();
   info!("Rando Microservice - v0.1.0");
   trace!("Starting...");
   //create address to bind to
@@ -17,7 +17,7 @@ fn main() {
   //set a requests handler
   let server = builder.serve(|| {
     service_fn_ok(|_| {
-      trace!("Incoming request is: {:?}",req);
+      trace!("Incoming request is: {:?}", req);
       let random_byte = rand::random::<u8>();
       debug!("Generated value is: {}", random_byte);
       Response::new(Body::from(random_byte.to_string()))
