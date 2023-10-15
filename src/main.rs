@@ -1,10 +1,19 @@
-use clap::{crate_authors, crate_description, crate_name, crate_version, Arg, App};
+use clap::{crate_authors,crate_description,crate_name,crate_version,Arg,App};
 use dotenv::dotenv;
 use hyper::{Body,Response,Server};
 use hyper::rt::Future;
 use hyper::service::service_fn_ok;
-use log::{debug,info,trace};
+use log::{debug,info,trace,warn};
+use serde_derive::Deserialize;
 use std::env;
+use std::io::{self,Read};
+use std::fs::File;
+use std::net::SocketAddr;
+
+#[derive(Deserialize)]
+struct Config {
+  address: SocketAddr,
+}
 
 fn main() {
   dotenv().ok();
@@ -30,13 +39,30 @@ fn main() {
     .get_matches(); 
   info!("Rando Microservice - {:?}", matches.value_of("version"));
   trace!("Starting...");
+  //open config file
+  let config = File::open("microservice.toml")
+    .and_then(|mut file| {
+      let mut buffer = String::new();
+      file.read_to_string(&mut buffer)?;
+      Ok(buffer)
+    })
+    .and_then(|buffer| {
+      toml::from_str::<Config>(&buffer)
+        .map_err(|err| io::Error::new(io::ErrorKind::Other, err))
+    })
+    .map_err(|err| {
+      warn!("Can't read config file: {}", err);
+    })
+    .ok();
   //determine address to bind to
+  //commandline param, environmental var, socket address, configuration file, default value
   let addr = matches.value_of("address")
     .map(|s|s.to_owned())
     .or(env::var("VAR_ADDRESS").ok())
-    .unwrap_or_else(|| "127.0.0.1:8080".into())
-    .parse()
-    .expect("can't parse VAR_ADDRESS variable");  
+    .and_then(|addr| addr.parse().ok())
+    .or(config.map(|config| config.address))
+    .or_else(|| Some(([127,0,0,1],8080).into()))
+    .unwrap();
   debug!("Trying to bind server to address: {}", addr);
   //create a server instance
   let builder = Server::bind(&addr);
