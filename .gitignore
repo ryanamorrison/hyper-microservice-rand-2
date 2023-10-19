@@ -4,4 +4,3 @@ Cargo.lock
 files
 *.db
 *.env
-*.bash

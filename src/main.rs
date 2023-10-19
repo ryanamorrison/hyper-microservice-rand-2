@@ -5,7 +5,9 @@ extern crate base64_serde;
 extern crate failure;
 extern crate futures;
 extern crate hyper;
+extern crate queryst;
 extern crate rand;
+extern crate serde_cbor;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
@@ -14,11 +16,13 @@ mod color;
 
 use base64::STANDARD;
 use color::Color;
+use failure::Error;
 use futures::{future, Future, Stream};
-use hyper::{Body, Error, Method, Request, Response, Server, StatusCode};
+use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use hyper::service::service_fn;
 use rand::Rng;
 use rand::distributions::{Bernoulli, Normal, Uniform};
+use serde_json::Value;
 use std::cmp::{max,min};
 use std::ops::Range;
 
@@ -64,6 +68,14 @@ fn color_range(from:u8, to:u8) -> Uniform<u8> {
   Uniform::new_inclusive(from,to)
 }
 
+fn serialize(format: &str, resp: &RngResponse) -> Result<Vec<u8>,Error> {
+  match format {
+    "json" => Ok(serde_json::to_vec(resp)?),
+    "cbor" => Ok(serde_cbor::to_vec(resp)?),
+         _ => Err(format_err!("unsupported format {}",format)),
+  }
+}
+
 fn handle_request(request: RngRequest) -> RngResponse {
   let mut rng = rand::thread_rng();
   match request {
@@ -92,17 +104,23 @@ fn handle_request(request: RngRequest) -> RngResponse {
   }
 }
 
-fn microservice_handler(req: Request<Body>) -> Box<dyn Future<Item=Response<Body>, Error=Error> + Send> {
+fn microservice_handler(req: Request<Body>) -> Box<dyn Future<Item=Response<Body>, Error=hyper::Error> + Send> {
   match (req.method(), req.uri().path()) {
     (&Method::GET, "/") | (&Method::GET, "/random") => {
       Box::new(future::ok(Response::new(INDEX.into())))
     },
     (&Method::POST, "/random") => {
+      let format = {
+        let uri = req.uri().query().unwrap_or("");
+        let query = queryst::parse(uri).unwrap_or(Value::Null);
+        query["format"].as_str().unwrap_or("json").to_string()
+      };
       let body = req.into_body().concat2()
-        .map(|chunks| {
+        .map(move|chunks| {
           let res = serde_json::from_slice::<RngRequest>(chunks.as_ref())
             .map(handle_request)
-            .and_then(|resp| serde_json::to_string(&resp));
+            .map_err(Error::from)
+            .and_then(move|resp| serialize(&format, &resp));
           match res {
             Ok(body) => {
               Response::new(body.into())
